@@ -1,0 +1,31 @@
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+
+# Local tool caches and generated runtime output
+.mplconfig/
+work/
+outputs/
+
+# IDE/editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
