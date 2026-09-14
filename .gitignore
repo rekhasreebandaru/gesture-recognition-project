@@ -22,6 +22,7 @@ outputs/
 *.swo
 *.tmp
 *.bak
+*.log
 Thumbs.db
 .DS_Store
 
