@@ -1,4 +1,4 @@
-"""Live static-gesture recognition with virtual light and fan control."""
+"""Live static-gesture recognition with virtual and Arduino device control."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ import cv2
 
 from config import (
     CAMERA_INDEX,
+    ARDUINO_BAUD_RATE,
+    ARDUINO_PORT,
     DETECT_HANDS_EVERY_FRAME,
+    DEVICE_MODE,
     ENABLE_LOW_LIGHT_ENHANCEMENT,
     MAX_NUM_HANDS,
     MIN_DETECTION_CONFIDENCE,
@@ -20,6 +23,8 @@ from config import (
 from src.camera.camera_stream import CameraStream
 from src.commands.command_mapper import Command, map_gesture_to_command
 from src.devices.virtual_device import VirtualDevice
+from src.devices.arduino_device import ArduinoDevice, ArduinoDeviceError
+from src.devices.virtual_device import DeviceInterface
 from src.recognition.classifier import GestureClassifier
 from src.recognition.features import extract_features
 from src.recognition.stability import ConsecutiveFrameStabilizer
@@ -35,6 +40,21 @@ def draw_device_panel(frame, x: int, y: int, name: str, is_on: bool) -> None:
     cv2.rectangle(frame, (x, y), (x + 190, y + 62), (255, 255, 255), thickness=1)
     cv2.putText(frame, name, (x + 10, y + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
     cv2.putText(frame, state, (x + 10, y + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+
+def create_device() -> DeviceInterface:
+    """Create the selected device without allowing serial failures to stop the app."""
+    if DEVICE_MODE == "virtual":
+        return VirtualDevice()
+    if DEVICE_MODE == "arduino":
+        try:
+            device = ArduinoDevice(port=ARDUINO_PORT, baudrate=ARDUINO_BAUD_RATE)
+            device.connect()
+        except (ArduinoDeviceError, ValueError) as error:
+            print(f"Arduino unavailable; commands will not reach hardware: {error}", file=sys.stderr)
+            return VirtualDevice()
+        return device
+    raise ValueError("DEVICE_MODE must be either 'virtual' or 'arduino'.")
 
 
 def main() -> int:
@@ -54,7 +74,7 @@ def main() -> int:
         stabilizer = ConsecutiveFrameStabilizer(
             required_consecutive_frames=REQUIRED_CONSECUTIVE_FRAMES
         )
-        device = VirtualDevice()
+        device = create_device()
         last_applied_gesture: str | None = None
         last_command: Command | None = None
         camera.start()
@@ -99,10 +119,23 @@ def main() -> int:
                         if stability.confirmed_label != last_applied_gesture:
                             command = map_gesture_to_command(stability.confirmed_label)
                             if command is not None:
-                                device.apply(command)
-                                last_command = command
                                 last_applied_gesture = stability.confirmed_label
-                        status_color = (0, 255, 0) if stability.confirmed_label else (0, 255, 255)
+                                try:
+                                    device.apply(command)
+                                except ArduinoDeviceError as error:
+                                    print(f"Arduino command failed: {error}", file=sys.stderr)
+                                    confirmation = f"Arduino error: {error}"
+                                    status_color = (0, 165, 255)
+                                else:
+                                    last_command = command
+                        if stability.confirmed_label:
+                            status_color = (
+                                (0, 165, 255)
+                                if confirmation.startswith("Arduino error:")
+                                else (0, 255, 0)
+                            )
+                        else:
+                            status_color = (0, 255, 255)
             else:
                 stabilizer.reset()
                 status = "No hand detected"
@@ -125,7 +158,7 @@ def main() -> int:
             draw_device_panel(frame, 20, 130, "VIRTUAL LIGHT", state.light_on)
             draw_device_panel(frame, 220, 130, "VIRTUAL FAN", state.fan_on)
             cv2.putText(frame, "Press Q to quit", (20, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.imshow("Gesture Recognition - Virtual IoT Control", frame)
+            cv2.imshow("Gesture Recognition - Virtual & Arduino IoT Control", frame)
 
             if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
                 return 0
@@ -135,6 +168,8 @@ def main() -> int:
     finally:
         if detector is not None:
             detector.close()
+        if isinstance(locals().get("device"), ArduinoDevice):
+            device.disconnect()
         if camera is not None:
             camera.stop()
         cv2.destroyAllWindows()

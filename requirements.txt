@@ -8,3 +8,4 @@ jax==0.4.30
 jaxlib==0.4.30
 ml-dtypes==0.5.1
 sentencepiece==0.2.2
+pyserial
